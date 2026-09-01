@@ -1,0 +1,90 @@
+#include "Renderer.h"
+#include "Input.h"
+#include "World.h"
+#include "Player.h"
+#include <cstdio>
+#include <cstring>
+
+// Simple single-file global state for stage 1 prototype
+static Renderer g_renderer;
+static Input g_input;
+static World g_world;
+static Player g_player;
+
+static const int WORLD_SIZE_X = World::WIDTH;
+static const int WORLD_SIZE_Z = World::DEPTH;
+
+int main()
+{
+    // Seed (deterministic)
+    unsigned int seed = 0xB10C + 12345; // change to vary worlds
+
+    if (!g_renderer.init()) {
+        // Initialization failed
+        return -1;
+    }
+
+    g_input.init();
+    g_world.init(seed);
+    g_player.init(g_world.spawnPosition());
+
+    // Main loop
+    uint32_t lastTicks = g_renderer.getTicks();
+    double accumulator = 0.0;
+    const double dt = 1.0 / 60.0;
+
+    bool running = true;
+    while (running) {
+        uint32_t now = g_renderer.getTicks();
+        double elapsed = (now - lastTicks) / 1000.0;
+        lastTicks = now;
+        accumulator += elapsed;
+
+        // Input poll
+        g_input.update();
+
+        if (g_input.isPressed(XINPUT_GAMEPAD_BACK)) {
+            running = false; // Back exits in this prototype
+        }
+
+        // handle camera input (right stick)
+        float rx = g_input.rightStickX();
+        float ry = g_input.rightStickY();
+        g_player.rotate(rx * 120.0f * (float)elapsed, ry * 120.0f * (float)elapsed);
+
+        // movement - left stick
+        float lx = g_input.leftStickX();
+        float ly = g_input.leftStickY();
+
+        // dt-stepped physics/update
+        while (accumulator >= dt) {
+            g_player.update(lx, ly, dt, g_input, g_world);
+            accumulator -= dt;
+        }
+
+        // Interactions: break/place
+        if (g_input.triggerLeft() > 0.5f) {
+            g_player.tryBreakBlock(g_world);
+        } else if (g_input.triggerRight() > 0.5f) {
+            g_player.tryPlaceBlock(g_world);
+        }
+
+        // Render
+        g_renderer.beginFrame();
+
+        // Setup camera from player
+        g_renderer.setCamera(g_player.position(), g_player.yaw(), g_player.pitch());
+
+        // Render world
+        g_renderer.renderWorld(g_world);
+
+        // Player overlay
+        g_renderer.drawCrosshair();
+        g_renderer.drawDebugText(g_input, g_world, g_player);
+
+        g_renderer.endFrame();
+    }
+
+    g_renderer.shutdown();
+    return 0;
+}
